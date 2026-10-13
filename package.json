@@ -1,0 +1,14 @@
+{
+  "name": "webste100",
+  "version": "1.0.0",
+  "description": "Plain LLM vs ASD-STE100 Simplified Technical English, side by side, with a deterministic STE linter and a lint-and-repair loop. 100% in-browser via WebLLM / WebGPU.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "serve": "npx --yes serve . -l 5190"
+  },
+  "repository": { "type": "git", "url": "https://github.com/vishalmysore/webSTE100" },
+  "keywords": ["webllm", "webgpu", "ste100", "simplified-technical-english", "llm-output", "linter", "on-device-ai"]
+}

@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>webSTE100 — Plain LLM vs ASD-STE100</title>
+  <meta name="description" content="Make an on-device LLM write like an aircraft maintenance manual. Side-by-side plain vs ASD-STE100 output, a deterministic STE linter and a lint-and-repair loop — 100% in-browser via WebLLM." />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --surface2: #1c2128;
+      --border:   #30363d;
+      --text:     #e6edf3;
+      --muted:    #8b949e;
+      --plain:    #f0883e;   /* amber — plain LLM panel */
+      --ste:      #58a6ff;   /* blue  — STE panel */
+      --green:    #3fb950;
+      --red:      #f85149;
+      --amber:    #d29922;
+      font-size: 14px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg); color: var(--text);
+      height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
+    }
+
+    /* ── Header ───────────────────────────────────────────────────── */
+    header {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 12px 24px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+    .header-left h1 { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
+    .header-left h1 .p-word { color: var(--plain); }
+    .header-left h1 .s-word { color: var(--ste); }
+    .header-left p { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .header-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+    .ghost-btn {
+      background: transparent; border: 1px solid var(--border); color: var(--muted);
+      padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .ghost-btn:hover { border-color: var(--ste); color: var(--text); }
+
+    .mode-toggle { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .mode-toggle button {
+      background: transparent; border: none; color: var(--muted); padding: 6px 14px;
+      font-size: 12px; font-weight: 700; cursor: pointer;
+    }
+    .mode-toggle button.active { background: var(--ste); color: #0d1117; }
+    .mode-toggle button:not(.active):hover { color: var(--text); }
+
+    /* ── Settings ─────────────────────────────────────────────────── */
+    .settings-panel {
+      display: none; background: var(--surface2); border-bottom: 1px solid var(--border);
+      padding: 14px 24px; flex-shrink: 0; gap: 24px;
+    }
+    .settings-panel.open { display: flex; flex-wrap: wrap; align-items: flex-start; }
+    .setting { display: flex; flex-direction: column; gap: 6px; min-width: 240px; flex: 1; }
+    .setting-title { font-size: 12px; font-weight: 600; }
+    .setting select {
+      background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      padding: 7px 10px; border-radius: 6px; font-size: 12px;
+    }
+    .setting select:disabled { opacity: 0.4; }
+    .note { font-size: 11px; color: var(--muted); line-height: 1.45; }
+    .load-btn {
+      background: var(--ste); color: #0d1117; border: none; padding: 7px 16px; border-radius: 6px;
+      font-size: 12px; font-weight: 700; cursor: pointer; align-self: flex-start;
+    }
+    .load-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* ── Query bar ────────────────────────────────────────────────── */
+    .query-bar {
+      display: flex; gap: 10px; align-items: flex-end; padding: 12px 24px;
+      background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .query-input {
+      flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+      padding: 9px 14px; border-radius: 6px; font-size: 14px; font-family: inherit;
+      resize: vertical; min-height: 40px; max-height: 40vh; line-height: 1.45;
+    }
+    .query-input:focus { outline: none; border-color: var(--ste); }
+    .query-input::placeholder { color: var(--muted); }
+    .btn-col { display: flex; gap: 8px; }
+    .send-btn {
+      background: var(--ste); color: #0d1117; border: none; padding: 9px 20px; border-radius: 6px;
+      font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap;
+    }
+    .send-btn.stop { background: var(--red); }
+    .send-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .lint-btn {
+      background: transparent; border: 1px solid var(--plain); color: var(--plain);
+      padding: 8px 16px; border-radius: 6px; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap;
+    }
+
+    /* ── Examples ─────────────────────────────────────────────────── */
+    .examples-bar {
+      display: flex; align-items: center; gap: 8px; padding: 8px 24px; background: var(--bg);
+      border-bottom: 1px solid var(--border); flex-shrink: 0; flex-wrap: wrap;
+    }
+    .examples-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .example-btn {
+      background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 4px 12px;
+      border-radius: 20px; font-size: 12px; cursor: pointer; margin: 2px 4px 2px 0;
+    }
+    .example-btn:hover { border-color: var(--plain); color: var(--text); }
+
+    /* ── Delta strip ──────────────────────────────────────────────── */
+    .delta-strip {
+      display: none; gap: 8px; flex-wrap: wrap; align-items: center; padding: 8px 24px;
+      background: var(--surface2); border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .delta-strip.show { display: flex; }
+    .delta-chip {
+      font-size: 12px; border: 1px solid var(--border); border-radius: 99px; padding: 3px 10px;
+      font-variant-numeric: tabular-nums; background: var(--bg);
+    }
+    .delta-chip b { color: var(--text); }
+    .delta-chip .from { color: var(--plain); }
+    .delta-chip .to { color: var(--ste); }
+    .delta-chip .good { color: var(--green); }
+
+    /* ── Panels ───────────────────────────────────────────────────── */
+    .comparison { display: grid; grid-template-columns: 1fr 1fr; flex: 1; min-height: 0; }
+    .panel { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); }
+    .panel:last-child { border-right: none; }
+    .panel-header {
+      display: flex; align-items: center; gap: 10px; padding: 12px 18px;
+      border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0;
+    }
+    .badge {
+      font-size: 10px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase;
+      padding: 3px 10px; border-radius: 99px; white-space: nowrap;
+    }
+    .badge-plain { background: rgba(240,136,62,0.15); color: var(--plain); }
+    .badge-ste   { background: rgba(88,166,255,0.15); color: var(--ste); }
+    .panel-title { font-size: 14px; font-weight: 600; }
+    .panel-subtitle { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+    .status-strip { padding: 8px 18px; background: var(--surface2); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .status-text { font-size: 12px; color: var(--muted); }
+    .progress-bar { height: 3px; background: var(--border); border-radius: 99px; margin-top: 5px; overflow: hidden; }
+    .progress-fill { height: 100%; width: 0%; transition: width 0.3s ease; }
+    .fill-plain { background: var(--plain); }
+    .fill-ste { background: var(--ste); }
+
+    .panel-body { flex: 1; overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+    .panel-body::-webkit-scrollbar { width: 5px; }
+    .panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+    .empty { color: var(--muted); font-size: 13px; line-height: 1.6; }
+
+    /* ── Scorecard ────────────────────────────────────────────────── */
+    .scorecard {
+      border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--surface);
+      display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+    }
+    .score-big { display: flex; flex-direction: column; align-items: center; min-width: 78px; }
+    .score-num { font-size: 32px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+    .score-grade { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; margin-top: 4px; }
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 6px 12px; flex: 1; min-width: 240px; }
+    .metric { display: flex; flex-direction: column; }
+    .metric .v { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .metric .k { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+    .metric.bad .v { color: var(--red); }
+    .metric.ok .v { color: var(--green); }
+
+    details.findings { font-size: 12px; color: var(--muted); }
+    details.findings summary { cursor: pointer; }
+    details.findings ul { margin: 6px 0 0 18px; line-height: 1.6; }
+    details.findings li.e { color: #ffa198; }
+    details.findings li.w { color: #e3b341; }
+
+    /* ── Passes (repair loop) ─────────────────────────────────────── */
+    .passes { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--muted); }
+    .pass-chip { border: 1px solid var(--border); border-radius: 99px; padding: 2px 10px; cursor: pointer; background: var(--bg); }
+    .pass-chip.best { border-color: var(--ste); color: var(--text); }
+    .pass-chip.viewing { background: var(--ste); color: #0d1117; }
+
+    /* ── Output ───────────────────────────────────────────────────── */
+    .question {
+      align-self: flex-end; max-width: 88%; background: var(--ste); color: #0d1117;
+      padding: 8px 12px; border-radius: 14px 14px 3px 14px; font-size: 13px; white-space: pre-wrap;
+    }
+    .output {
+      background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
+      padding: 12px 14px; font-size: 13.5px; line-height: 1.7; word-break: break-word;
+    }
+    .output.streaming { white-space: pre-wrap; color: var(--muted); }
+    .output .ln { margin: 0; }
+    .output .ln + .ln { margin-top: 4px; }
+    .output .blank { height: 8px; }
+    .output .hd { font-weight: 700; margin-top: 6px; }
+    .output .code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: var(--muted); white-space: pre; overflow-x: auto; }
+    .output .pfx { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .output .lbl { color: var(--amber); font-weight: 700; }
+    .s { border-radius: 3px; padding: 0 1px; }
+    .s-err { background: rgba(248,81,73,0.12); box-shadow: inset 0 -1px 0 rgba(248,81,73,0.55); }
+    .s-warn { background: rgba(210,153,34,0.10); }
+    .wc { font-size: 9.5px; font-weight: 700; vertical-align: super; margin-left: 2px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .wc.over { color: var(--red); }
+    mark { background: none; color: inherit; border-bottom: 2px solid; cursor: help; }
+    mark.m-word { border-color: var(--red); color: #ffa198; }
+    mark.m-drift { border-color: var(--amber); color: #e3b341; }
+    mark.m-fluff { border-color: var(--muted); color: var(--muted); text-decoration: line-through; }
+
+    .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+    .legend span { display: inline-flex; gap: 5px; align-items: center; }
+    .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+    .thinking { display: flex; gap: 5px; padding: 6px 2px; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: bounce 1.3s infinite ease-in-out; }
+    .dot:nth-child(2) { animation-delay: 0.18s; }
+    .dot:nth-child(3) { animation-delay: 0.36s; }
+    @keyframes bounce { 0%,60%,100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-7px); opacity: 1; } }
+
+    .toast {
+      position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--surface2);
+      border: 1px solid var(--border); padding: 8px 14px; border-radius: 8px; font-size: 13px;
+      opacity: 0; transition: opacity 0.2s; pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
+
+    @media (max-width: 860px) {
+      body { height: auto; overflow: auto; }
+      header, .query-bar, .examples-bar, .delta-strip, .settings-panel { padding-left: 16px; padding-right: 16px; }
+      .query-bar { flex-direction: column; align-items: stretch; }
+      .comparison { grid-template-columns: 1fr; }
+      .panel { border-right: none; border-bottom: 1px solid var(--border); }
+      .panel-body { overflow: visible; }
+      .metrics { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <h1>webSTE100 &mdash; <span class="p-word">Plain LLM</span> vs <span class="s-word">ASD-STE100</span></h1>
+    <p>Make an LLM write like an aircraft maintenance manual &bull; Deterministic STE linter + lint-and-repair loop &bull; 100% in-browser via WebLLM</p>
+  </div>
+  <div class="header-right">
+    <div class="mode-toggle" id="modeToggle">
+      <button data-mode="ask" class="active">Ask a question</button>
+      <button data-mode="rewrite">Rewrite text</button>
+    </div>
+    <button class="ghost-btn" id="copyPromptBtn" title="Copy the STE system prompt to use in any chatbot">Copy STE prompt</button>
+    <button class="ghost-btn" id="settingsToggle">&#9881; Settings</button>
+  </div>
+</header>
+
+<div class="settings-panel open" id="settingsPanel">
+  <div class="setting">
+    <span class="setting-title">Model (same model for both panels — only the prompt differs)</span>
+    <select id="modelSelect"></select>
+    <div class="note" id="modelNote"></div>
+    <button class="load-btn" id="loadBtn">Load model</button>
+    <div class="note" id="loadProg"></div>
+  </div>
+  <div class="setting">
+    <span class="setting-title">Lint-and-repair loop (STE panel)</span>
+    <select id="repairSelect">
+      <option value="0">Off — single draft</option>
+      <option value="1">1 repair pass</option>
+      <option value="2" selected>2 repair passes</option>
+      <option value="3">3 repair passes</option>
+    </select>
+    <div class="note">After each draft, the linter lists every rule break. The model gets the list and rewrites. The best-scoring version is kept.</div>
+  </div>
+  <div class="setting">
+    <span class="setting-title">About the rules</span>
+    <div class="note">The linter approximates well-known ASD-STE100 writing rules: 20-word procedural sentences, 25-word descriptive sentences, one instruction per sentence, active voice, one name for one thing, simple words. It is not the official ASD-STE100 dictionary.</div>
+  </div>
+</div>
+
+<div class="query-bar">
+  <textarea class="query-input" id="queryInput" rows="1"
+    placeholder="Ask a technical question — both panels answer with the same model…"></textarea>
+  <div class="btn-col">
+    <button class="lint-btn" id="lintBtn" style="display:none" title="Lint the text now — no model needed">Lint only</button>
+    <button class="send-btn" id="sendBtn" disabled>Send</button>
+  </div>
+</div>
+
+<div class="examples-bar">
+  <span class="examples-label">Try:</span>
+  <div id="exampleBtns"></div>
+</div>
+
+<div class="delta-strip" id="deltaStrip"></div>
+
+<div class="comparison">
+  <div class="panel">
+    <div class="panel-header">
+      <span class="badge badge-plain" id="badgeL">Plain</span>
+      <div>
+        <div class="panel-title" id="titleL">Default LLM output</div>
+        <div class="panel-subtitle" id="subL">System prompt: "You are a helpful assistant."</div>
+      </div>
+    </div>
+    <div class="status-strip">
+      <div class="status-text" id="statusL">Load a model in Settings.</div>
+      <div class="progress-bar"><div class="progress-fill fill-plain" id="progressL"></div></div>
+    </div>
+    <div class="panel-body" id="bodyL"><p class="empty">The plain answer appears here, with every STE rule break marked.</p></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <span class="badge badge-ste">STE100</span>
+      <div>
+        <div class="panel-title" id="titleR">ASD-STE100 output</div>
+        <div class="panel-subtitle" id="subR">Same model &bull; STE system prompt &bull; linter-driven repair</div>
+      </div>
+    </div>
+    <div class="status-strip">
+      <div class="status-text" id="statusR">Load a model in Settings.</div>
+      <div class="progress-bar"><div class="progress-fill fill-ste" id="progressR"></div></div>
+    </div>
+    <div class="panel-body" id="bodyR"><p class="empty">The Simplified Technical English answer appears here, with its score and each repair pass.</p></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
