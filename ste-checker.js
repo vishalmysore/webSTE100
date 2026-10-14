@@ -29,7 +29,7 @@ export const UNAPPROVED = {
   commence: "start", initiate: "start",
   terminate: "stop", cease: "stop",
   ensure: "make sure", facilitate: "help", assist: "help", assistance: "help",
-  approximately: "about", additional: "more", additionally: "also",
+  additional: "more", additionally: "also",
   subsequently: "then", subsequent: "next",
   numerous: "many", sufficient: "enough", insufficient: "not enough",
   obtain: "get", purchase: "buy", attempt: "try", endeavor: "try", endeavour: "try",
