@@ -3,7 +3,9 @@
 **Plain LLM vs ASD-STE100 Simplified Technical English, side by side. It runs 100% in your browser with WebLLM / WebGPU.**
 There is no server, no API key and no backend.
 
-![Ask mode: plain answer scores 8, STE answer scores 100 after one repair pass](docs/ask-mode.png)
+**▶ Live demo: https://vishalmysore.github.io/webSTE100/** · **📝 Article with live test results: [docs/ARTICLE.md](docs/ARTICLE.md)**
+
+![Live run: plain answer scores 60, STE answer scores 97](docs/live-ask-jumpstart.jpg)
 
 ## Why
 
